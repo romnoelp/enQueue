@@ -1,19 +1,11 @@
 "use client";
 
-import * as motion from "motion/react-client";
+
 import { DashboardCard } from "@/components/ui/dashboard-card";
 import { RecentActivity } from "@/components/ui/recent-activity";
 import { UsersTable } from "@/components/ui/users-table";
 import React, { useEffect, useState } from "react";
 import { Users, Activity, Eye, MapPin } from "lucide-react";
-import { parseStationsResponse } from "@/lib/backend/parse-stations";
-
-type StationListItem = { id?: string | number };
-
-type CounterApiItem = {
-  stationId?: string | number;
-  cashierUid?: string | null;
-};
 
 const Dashboard = () => {
   const [stats, setStats] = useState([
