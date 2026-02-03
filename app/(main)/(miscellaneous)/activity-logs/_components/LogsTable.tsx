@@ -14,7 +14,7 @@ const LogsTable = ({ children }: { children: React.ReactNode }) => (
       <TableHeader>
         <TableRow>
           <TableHead>Timestamp</TableHead>
-          <TableHead>User ID</TableHead>
+          <TableHead>Email</TableHead>
           <TableHead>Action</TableHead>
           <TableHead>Details</TableHead>
         </TableRow>

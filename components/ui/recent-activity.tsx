@@ -1,9 +1,10 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { Clock, Activity, User, Download, Settings, Users } from "lucide-react";
-import { apiFetch } from "@/app/lib/backend/api";
+import { api } from "@/app/lib/config/api";
+import type { ActivityLog } from "@/types/activity";
 
 type ActivityItem = {
   id?: string;
@@ -14,24 +15,6 @@ type ActivityItem = {
   displayName?: string;
   email?: string;
 };
-
-type RawActivity = {
-  id?: string;
-  uid?: string;
-  actorUID?: string;
-  actor?: string;
-  action?: string;
-  type?: string;
-  details?: unknown;
-  data?: unknown;
-  timestamp?: number | string;
-};
-
-type FetchedUserData = {
-  displayName?: string;
-  name?: string;
-  email?: string;
-} | null;
 
 const timeAgo = (ts?: number) => {
   if (!ts) return "—";
@@ -49,96 +32,92 @@ const timeAgo = (ts?: number) => {
 export const RecentActivity = memo(() => {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userEmailMap, setUserEmailMap] = useState<Map<string, string>>(new Map());
+  const fetchingEmails = useRef<Set<string>>(new Set());
+
+  const fetchLogs = useCallback(async (startDate: Date, endDate: Date): Promise<ActivityLog[]> => {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    try {
+      const res = await api.get(
+        "/admin/activity-logs",
+        {
+          params: {
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+          },
+        }
+      );
+
+      return res.data.activityLogs ?? [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const fetchUserEmail = useCallback(async (userId: string): Promise<string | null> => {
+    try {
+      const res = await api.get(`/admin/users/${userId}`);
+      return res.data.user.email ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const loadUserEmail = useCallback(async (userId: string) => {
+    if (fetchingEmails.current.has(userId)) {
+      return;
+    }
+
+    fetchingEmails.current.add(userId);
+    const email = await fetchUserEmail(userId);
+    if (email) {
+      setUserEmailMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(userId, email);
+        return newMap;
+      });
+    }
+    fetchingEmails.current.delete(userId);
+  }, [fetchUserEmail]);
 
   useEffect(() => {
     let mounted = true;
 
     const fetchActivities = async () => {
       try {
-        // default to last 7 days
-        const end = new Date().toISOString();
-        const start = new Date(
-          Date.now() - 7 * 24 * 60 * 60 * 1000
-        ).toISOString();
+        // Set start date to today at hour 0
+        const today = new Date();
+        const startDate = new Date(today);
+        startDate.setHours(0, 0, 0, 0);
+        
+        // Set end date to today at hour 23:59:59.999
+        const endDate = new Date(today);
+        endDate.setHours(23, 59, 59, 999);
 
-        const json = await apiFetch<{
-          data?: RawActivity[];
-          activities?: RawActivity[];
-        }>("/admin/activity-logs", {
-          query: {
-            startDate: start,
-            endDate: end,
-          },
-        });
+        const logs = await fetchLogs(startDate, endDate);
 
-        const raw = Array.isArray(json.data)
-          ? json.data
-          : Array.isArray(json.activities)
-          ? json.activities
-          : [];
-
-        const items: ActivityItem[] = raw.map((a) => {
-          const timestampRaw = a.timestamp;
-          const ts =
-            typeof timestampRaw === "number"
-              ? timestampRaw
-              : timestampRaw
-              ? Number(timestampRaw)
-              : undefined;
-
-          return {
-            id: a.id,
-            uid: a.uid ?? a.actorUID ?? a.actor ?? undefined,
-            action: a.action ?? String(a.type ?? "action"),
-            details: a.details ?? a.data ?? undefined,
-            timestamp:
-              typeof ts === "number" && Number.isFinite(ts) ? ts : undefined,
-          };
-        });
-
-        // Resolve user display names for any unique UIDs returned
-        const uniqueUids = Array.from(
-          new Set(items.map((it) => it.uid).filter(Boolean))
-        );
-        const userMap: Record<
-          string,
-          { displayName?: string; email?: string }
-        > = {};
-
-        if (uniqueUids.length > 0) {
-          const userFetches = uniqueUids.map((u) =>
-            apiFetch<{ data?: FetchedUserData }>(
-              `/admin/users/${encodeURIComponent(u as string)}`
-            )
-              .then((j) => ({ uid: u, data: j?.data ?? null }))
-              .catch(() => ({ uid: u, data: null as FetchedUserData }))
-          );
-
-          const resolved = await Promise.all(userFetches);
-          for (const r of resolved) {
-            if (r && r.uid && r.data) {
-              const data = r.data!;
-              userMap[r.uid as string] = {
-                displayName: data.displayName ?? data.name,
-                email: data.email,
-              };
-            }
-          }
-        }
-
-        // Attach resolved display info to items for rendering
-        const itemsWithUser = items.map((it) => {
-          const meta = it.uid ? userMap[it.uid as string] : undefined;
-          return {
-            ...it,
-            displayName: meta?.displayName,
-            email: meta?.email,
-          } as ActivityItem;
-        });
+        // Convert ActivityLog[] to ActivityItem[]
+        const items: ActivityItem[] = logs.map((log) => ({
+          id: `${log.timestamp}-${log.uid}-${log.action}`,
+          uid: log.uid,
+          action: log.action,
+          details: log.details,
+          timestamp: log.timestamp,
+          displayName: log.displayName,
+          email: log.email,
+        }));
 
         if (mounted) {
-          // limit to 4 items as requested
-          setActivities(itemsWithUser.slice(0, 4));
+          // Limit to 4 items and sort by timestamp descending (most recent first)
+          const sortedItems = items
+            .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+            .slice(0, 4);
+          
+          setActivities(sortedItems);
         }
       } catch (err) {
         console.error("Failed to fetch recent activities", err);
@@ -152,7 +131,21 @@ export const RecentActivity = memo(() => {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [fetchLogs]);
+
+  // Load user emails for unique UIDs when activities change
+  useEffect(() => {
+    const uniqueUserIds = new Set(
+      activities
+        .map((item) => item.uid)
+        .filter((uid): uid is string => Boolean(uid))
+    );
+    uniqueUserIds.forEach((userId) => {
+      if (!userEmailMap.has(userId) && !fetchingEmails.current.has(userId)) {
+        loadUserEmail(userId);
+      }
+    });
+  }, [activities, userEmailMap, loadUserEmail]);
 
   return (
     <div className="border-border bg-card/40 rounded-xl border p-6 h-full flex flex-col">
@@ -209,9 +202,10 @@ export const RecentActivity = memo(() => {
             const { Icon, color, bg } = getMeta();
 
             const userLabel = (() => {
+              const email = activity.email ?? (activity.uid ? userEmailMap.get(activity.uid) : undefined);
               const v =
                 activity.displayName ??
-                activity.email ??
+                email ??
                 activity.uid ??
                 (typeof activity.details === "object" &&
                 activity.details !== null

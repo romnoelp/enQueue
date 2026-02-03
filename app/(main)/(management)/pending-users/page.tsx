@@ -1,23 +1,17 @@
 "use client";
-
-import { apiFetch } from "@/app/lib/backend/api";
 import BounceLoader from "@/components/mvpblocks/bouncing-loader";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as motion from "motion/react-client";
-import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import PendingEmployeeCard from "@/components/mvpblocks/pending-employee-card";
 import type Employee from "@/types/employee";
 import Actions from "./_components/Actions";
-import { searchEmployees } from "@/lib/employee-utils";
-import { normalizePendingUsersResponse } from "./_utils/data";
 import type { UserRole } from "@/types/auth";
 import { toast } from "sonner";
 import AssignRoleDialog from "./_components/AssignRoleDialog";
-import { DEFAULT_ACCEPT_ROLE, getRoleLabel } from "./_utils/role";
-import { acceptPendingUser } from "./_utils/mutations";
-import { removePendingUser } from "./_utils/list";
-import { getErrorMessage } from "@/lib/error-utils";
+import { api } from "@/app/lib/config/api";
+import { getRoleLabel } from "@/app/(main)/(people)/employees/_utils/role";
+import { isAxiosError } from "axios";
 
 // Dialog state for role assignment
 const useAssignRoleDialog = () => {
@@ -28,7 +22,7 @@ const useAssignRoleDialog = () => {
 
   const open = (user: Employee) => {
     setSelectedUser(user);
-    setSelectedRole(DEFAULT_ACCEPT_ROLE);
+    setSelectedRole("information");
     setIsSaving(false);
     setErrorMessage(null);
   };
@@ -57,7 +51,6 @@ const useAssignRoleDialog = () => {
 };
 
 const PendingUsers = () => {
-  const { data: session } = useSession();
   const [pending, setPending] = useState<Employee[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -67,11 +60,10 @@ const PendingUsers = () => {
   useEffect(() => {
     const fetchPending = async () => {
       try {
-        const data = await apiFetch("/admin/pending-users");
-        setPending(normalizePendingUsersResponse(data));
+        const response = await api.get("/admin/pending-users");
+        setPending(response.data.pendingUsers);
       } catch (error) {
         console.error("Failed to load pending users", error);
-        setPending([]);
       } finally {
         setIsLoading(false);
       }
@@ -80,7 +72,17 @@ const PendingUsers = () => {
   }, []);
 
   const filtered = useMemo(() => {
-    return searchEmployees(pending, searchQuery);
+    const query = searchQuery.toLowerCase().trim();
+    
+    if (!query) {
+      return pending;
+    }
+    
+    return pending.filter((user) => {
+      const nameMatch = user.name?.toLowerCase().includes(query);
+      const emailMatch = user.email?.toLowerCase().includes(query);
+      return nameMatch || emailMatch;
+    });
   }, [pending, searchQuery]);
 
   const confirmAssignRole = async () => {
@@ -94,28 +96,37 @@ const PendingUsers = () => {
     try {
       dialog.setIsSaving(true);
       dialog.resetError();
-      await acceptPendingUser(selectedUser.uid, selectedRole);
-      setPending((prev) => removePendingUser(prev, selectedUser));
+      await api.post("/admin/assign-role", {
+        userId: selectedUser.uid,
+        role: selectedRole,
+      });
+      setPending((prev) => {
+        return prev.filter((user) => {
+          if (selectedUser.uid && user.uid) {
+            return selectedUser.uid !== user.uid;
+          }
+          if (selectedUser.email) {
+            return selectedUser.email !== user.email;
+          }
+          return user !== selectedUser;
+        });
+      });
       toast.success(
         `${selectedUser.name} accepted as ${getRoleLabel(selectedRole)}.`
       );
       dialog.close();
     } catch (error) {
-      const message = getErrorMessage(error);
+      const message = isAxiosError(error) && error.response?.data?.message
+        ? error.response.data.message
+        : error instanceof Error
+        ? error.message
+        : "Failed to assign role";
       dialog.setErrorMessage(message);
       toast.error(message);
     } finally {
       dialog.setIsSaving(false);
     }
   };
-
-  if (!session) {
-    return (
-      <div className="h-full flex justify-center items-center">
-        <BounceLoader />
-      </div>
-    );
-  }
 
   return (
     <div className="h-full flex flex-col">
@@ -153,7 +164,7 @@ const PendingUsers = () => {
           )}
 
           {filtered.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
               {filtered.map((user, index) => (
                 <motion.div
                   className="text-left"

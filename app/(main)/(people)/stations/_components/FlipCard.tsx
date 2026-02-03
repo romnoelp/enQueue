@@ -1,27 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import type { Station as ImportedStation } from "@/types/station";
+import type { Station } from "@/types/station";
 import FlipCardFront from "./FlipCardFront";
 import FlipCardBack from "./FlipCardBack";
 import { toast } from "sonner";
-import { apiFetch } from "@/app/lib/backend/api";
-
-type Station = Partial<ImportedStation> & {
-  id?: string | number;
-  role?: string;
-  email?: string;
-  name?: string;
-};
+import { api } from "@/app/lib/config/api";
+import { useStationsRefresh } from "../_contexts/StationsRefreshContext";
+import { isAxiosError } from "axios";
+// import { apiFetch } from "@/app/lib/backend/api";
 
 type Props = {
-  station?: Station;
+  station: Station;
   title: string;
-  onDeleted?: () => void | Promise<void>;
 };
-const FlipCard = ({ station, title, onDeleted }: Props) => {
+const FlipCard = ({ station, title }: Props) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { refresh } = useStationsRefresh();
   const CARD_HEIGHT = 200;
   const FLIP_DURATION = 300;
 
@@ -33,15 +29,16 @@ const FlipCard = ({ station, title, onDeleted }: Props) => {
 
     setIsDeleting(true);
     try {
-      await apiFetch(
-        `/stations/delete/${encodeURIComponent(String(station.id))}`,
-        { method: "DELETE" }
-      );
-      toast.success(`${station?.name ?? "Station"} deleted`);
-      if (onDeleted) await onDeleted();
+      await api.delete(`/stations/${station.id}`)
+      toast.success(`${station.name ?? "Station"} deleted`);
+      await refresh(false);
     } catch (err) {
       console.error("Failed to delete station", err);
-      toast.error((err as Error).message || "Failed to delete station");
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to delete station");
+      }
     } finally {
       setIsDeleting(false);
     }
@@ -51,7 +48,7 @@ const FlipCard = ({ station, title, onDeleted }: Props) => {
 
   return (
     <div
-      className="group relative w-full max-w-sm perspective-[2000px]"
+      className="group relative w-full max-w-md perspective-[2000px]"
       style={{ height: CARD_HEIGHT }}
       onMouseEnter={() => setIsFlipped(true)}
       onMouseLeave={() => setIsFlipped(false)}

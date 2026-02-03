@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -24,25 +24,30 @@ import {
 } from "@/components/animate-ui/components/radix/alert-dialog";
 import CounterCard from "./CounterCard";
 // API helpers are provided by ./counterActions
-import {
-  fetchAssignedUserLabels,
-  fetchCountersApi,
-  createCounterApi,
-  deleteCounterApi,
-} from "../_utils/counterActions";
+// import {
+//   fetchAssignedUserLabels,
+//   fetchCountersApi,
+//   createCounterApi,
+//   deleteCounterApi,
+// } from "../_utils/counterActions";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
+import { useStationsRefresh } from "../_contexts/StationsRefreshContext";
+import { Counter } from "@/types/counter";
+import { api } from "@/app/lib/config/api";
+import { isAxiosError } from "axios";
 
 type Props = {
-  stationId?: string | number | null;
-  onCreated?: () => void;
+  stationId: string
 };
 
-const CounterContent = ({ stationId, onCreated }: Props) => {
+const CounterContent = ({ stationId }: Props) => {
+  const { refresh } = useStationsRefresh();
   const [open, setOpen] = useState(false);
-  const [counters, setCounters] = useState<
-    Array<{ id: string; number?: number; cashierUid?: string | null }>
-  >([]);
+  const [counters, setCounters] = useState<Counter[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [activeDialogCounter, setActiveDialogCounter] = useState<string | null>(
     null
   );
@@ -61,81 +66,157 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
     string | null
   >(null);
 
-  // Fetch counters for the station and their assigned employees
+  // Fetch user email for a cashier UID
+  const fetchUserEmail = useCallback(async (cashierUid: string) => {
+    try {
+      const response = await api.get(`/admin/user/${cashierUid}`);
+      const email = response.data?.email || response.data?.data?.email;
+      if (email) {
+        setAssignedEmails((prev) => ({
+          ...prev,
+          [cashierUid]: email,
+        }));
+      }
+    } catch (err) {
+      console.error(`Failed to fetch user data for ${cashierUid}`, err);
+      // Silently fail - don't show toast for individual user fetches
+    }
+  }, []);
+
+  // Initial fetch of counters for the station
   const fetchCounters = useCallback(async () => {
-    if (!stationId) {
-      setCounters([]);
+
+    setIsInitialLoading(true);
+    try {
+      const response = await api.get(`/counters/${stationId}`, {
+        params: {
+          limit: 6,
+        },
+      });
+  
+      const cursor = response.data?.nextCursor ?? null;
+      const counterList = (response.data.counters ?? []) as Counter[];
+      
+      setCounters(counterList);
+      setNextCursor(cursor);
+
+      // Fetch user emails for counters with cashierUid
+      const cashierUids = counterList
+        .map((counter: Counter) => counter.cashierUid)
+        .filter((uid: string | undefined): uid is string => !!uid);
+      const uniqueCashierUids = Array.from(new Set(cashierUids));
+      
+      // Fetch emails for all unique cashier UIDs
+      await Promise.all(
+        uniqueCashierUids.map((uid: string) => fetchUserEmail(uid))
+      );
+    } catch (err) {
+      console.error("Failed to fetch counters", err);
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to fetch counters");
+      }
+    } finally {
+      setIsInitialLoading(false);
+    }
+  }, [stationId, fetchUserEmail]);
+
+  // Load more counters using cursor
+  const loadMoreCounters = useCallback(async () => {
+    if (!stationId || !nextCursor || isLoadingMore) {
       return;
     }
 
+    setIsLoadingMore(true);
     try {
-      const data = await fetchCountersApi(stationId);
-      const counterList = (data?.counterList ?? []) as Array<{
-        id?: string | number;
-        number?: number;
-        cashierUid?: string | null;
-      }>;
-      setCounters(
-        counterList.map((counterFromApi) => ({
+      const response = await api.get(`/counters/${stationId}`, {
+        params: {
+          cursor: nextCursor,
+          limit: 6,
+        },
+      });
+      
+      const counterList = (response.data?.counters ?? []) as Counter[];
+      const cursor = response.data?.nextCursor ?? null;
+      
+      setCounters((prev) => [
+        ...prev,
+        ...counterList.map((counterFromApi) => ({
           id: String(counterFromApi.id ?? ""),
-          number: counterFromApi.number,
-          cashierUid: counterFromApi.cashierUid ?? null,
-        }))
+          number: counterFromApi.number ?? 0,
+          stationId: String(counterFromApi.stationId ?? stationId),
+          cashierUid: counterFromApi.cashierUid ?? undefined,
+        })),
+      ]);
+      setNextCursor(cursor);
+
+      // Fetch user emails for counters with cashierUid that we haven't fetched yet
+      const cashierUids = counterList
+        .map((counter: Counter) => counter.cashierUid)
+        .filter((uid: string | undefined): uid is string => !!uid);
+      const uniqueCashierUids = Array.from(new Set(cashierUids));
+      
+      // Fetch emails for all unique cashier UIDs (duplicates will be skipped by state)
+      await Promise.all(
+        uniqueCashierUids.map((uid: string) => fetchUserEmail(uid))
       );
-
-      // fetch assigned user labels for counters that have cashierUid
-      const uidList = counterList
-        .map((counterFromApi) => counterFromApi.cashierUid)
-        .filter(Boolean) as string[];
-
-      const emails = await fetchAssignedUserLabels(uidList);
-      setAssignedEmails(emails);
     } catch (err) {
-      console.error("Failed to fetch counters", err);
-      setCounters([]);
+      console.error("Failed to load more counters", err);
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to load more counters");
+      }
+    } finally {
+      setIsLoadingMore(false);
     }
-  }, [stationId]);
+  }, [stationId, nextCursor, isLoadingMore, fetchUserEmail]);
 
   useEffect(() => {
     let mounted = true;
-    if (mounted) void fetchCounters();
+    const loadCounters = async () => {
+      if (mounted) {
+        await fetchCounters();
+      }
+    };
+    void loadCounters();
     return () => {
       mounted = false;
     };
   }, [fetchCounters, open]);
 
-  const handleCreate = async () => {
+  const handleCreate = async (counterNumber: number) => {
     if (isCreating) return;
     if (!stationId) {
       toast.error("Station not selected");
       return;
     }
+    if (!counterNumber || counterNumber <= 0) {
+      toast.error("Counter number must be a positive number");
+      return;
+    }
+
     setIsCreating(true);
     try {
       setLoadingAction({ type: "create" });
-      // Determine next counter number
-      const countersResponse = await fetchCountersApi(stationId);
-      const existingCounters = countersResponse?.counterList ?? [];
-      const maxNumber = existingCounters.reduce(
-        (max, counterItem) =>
-          Math.max(
-            max,
-            Number((counterItem as { number?: number }).number ?? 0)
-          ),
-        0
-      );
-      const nextNumber = maxNumber + 1;
-
-      // Create counter
-      await createCounterApi(stationId, nextNumber);
+      
+      await api.post("/counters", {
+        number: counterNumber,
+        stationId
+      });
 
       toast.success("Counter created");
       setOpen(false);
-      if (onCreated) await onCreated();
+      await refresh(false);
       await fetchCounters();
     } catch (err) {
       console.error("Create counter flow failed", err);
-      toast.error((err as Error).message || "Failed to complete action");
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to create counter");
+      }
     } finally {
       setIsCreating(false);
       setLoadingAction({ type: null });
@@ -154,31 +235,27 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
 
     try {
       setLoadingAction({ type: "delete", id: counterId });
-      const foundCounter = counters.find(
-        (counterItem) => counterItem.id === counterId
-      );
-      const number = Number(foundCounter?.number ?? 0);
-      const cashierUid = foundCounter?.cashierUid ?? null;
-      if (!number) {
-        throw new Error("Counter number is missing");
-      }
-
-      await deleteCounterApi(counterId, {
-        stationId: String(stationId),
-        number,
-        cashierUid: cashierUid || undefined,
+      
+      await api.delete(`/counters/${counterId}`, {
+        params: {
+          stationId
+        }
       });
 
       toast.success("Counter deleted");
       setDeleteConfirmCounter(null);
       // Close the per-counter management dialog and refresh
       setActiveDialogCounter(null);
+      await refresh(false);
       await fetchCounters();
-      if (onCreated) await onCreated();
       setLoadingAction({ type: null });
     } catch (err) {
       console.error("Failed to delete counter", err);
-      toast.error((err as Error).message || "Failed to delete counter");
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to delete counter");
+      }
       setLoadingAction({ type: null });
     }
   };
@@ -207,26 +284,36 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
         <div className="h-full w-full">
           <ScrollArea className="h-105 w-full border rounded-md">
             <div className="p-2">
-              <div className="grid grid-cols-2 gap-3 min-h-90">
-                {counters.length === 0 ? (
-                  <div className="col-span-2 flex items-center justify-center h-full text-sm text-muted-foreground">
-                    <p className="font-semibold text-base text-muted-foreground">
-                      No counters
-                    </p>
-                  </div>
-                ) : (
-                  counters.map((counter) => {
+              {isInitialLoading ? (
+                <div className="col-span-2 flex items-center justify-center h-full text-sm text-muted-foreground">
+                  <Spinner className="mr-2" />
+                  <p className="font-semibold text-base text-muted-foreground">
+                    Loading counters...
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 min-h-90">
+                  {counters.length === 0 ? (
+                    <div className="col-span-2 flex items-center justify-center h-full text-sm text-muted-foreground">
+                      <p className="font-semibold text-base text-muted-foreground">
+                        No counters
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {counters.map((counter) => {
+                    const counterId = counter.id ?? "";
                     const assignedEmailLabel = counter?.cashierUid
                       ? assignedEmails[counter.cashierUid] ?? ""
                       : "";
 
                     return (
                       <Dialog
-                        key={counter.id}
-                        open={activeDialogCounter === counter.id}
+                        key={counterId}
+                        open={activeDialogCounter === counterId}
                         onOpenChange={(v) => {
                           if (v) {
-                            setActiveDialogCounter(counter.id);
+                            setActiveDialogCounter(counterId);
                           } else {
                             setActiveDialogCounter(null);
                           }
@@ -261,7 +348,7 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
                               <Button
                                 variant="destructive"
                                 onClick={() =>
-                                  setDeleteConfirmCounter(counter.id)
+                                  setDeleteConfirmCounter(counterId)
                                 }
                               >
                                 Delete Counter
@@ -269,7 +356,7 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
                             </div>
                             {/* Delete confirmation alert dialog (per-counter) */}
                             <AlertDialog
-                              open={deleteConfirmCounter === counter.id}
+                              open={deleteConfirmCounter === counterId}
                               onOpenChange={(v) => {
                                 if (!v) setDeleteConfirmCounter(null);
                               }}
@@ -288,16 +375,15 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
                                   <AlertDialogAction
                                     disabled={
                                       loadingAction.type === "delete" &&
-                                      loadingAction.id === counter.id
+                                      loadingAction.id === counterId
                                     }
                                     onClick={async () => {
                                       if (!deleteConfirmCounter) return;
                                       await handleDelete(deleteConfirmCounter);
-                                      setDeleteConfirmCounter(null);
                                     }}
-                                  >
+                                    >
                                     {loadingAction.type === "delete" &&
-                                    loadingAction.id === counter.id ? (
+                                    loadingAction.id === counterId ? (
                                       <>
                                         <Spinner className="mr-2" /> Deleting...
                                       </>
@@ -312,9 +398,28 @@ const CounterContent = ({ stationId, onCreated }: Props) => {
                         </DialogContent>
                       </Dialog>
                     );
-                  })
-                )}
-              </div>
+                      })}
+                      {nextCursor && (
+                        <div className="col-span-2 flex justify-center pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => void loadMoreCounters()}
+                            disabled={isLoadingMore}
+                          >
+                            {isLoadingMore ? (
+                              <>
+                                <Spinner className="mr-2" /> Loading...
+                              </>
+                            ) : (
+                              "Load More"
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </ScrollArea>
         </div>

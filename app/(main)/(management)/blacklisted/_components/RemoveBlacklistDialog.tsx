@@ -9,11 +9,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/animate-ui/components/radix/dialog";
+import { useEffect, useState } from "react";
+import { api } from "@/app/lib/config/api";
 
 type RemoveBlacklistDialogProps = {
   open: boolean;
   userEmail: string;
   reason: string;
+  blockedBy: string;
   onClose: () => void;
   onConfirm: () => void;
   isSaving?: boolean;
@@ -24,12 +27,32 @@ export default function RemoveBlacklistDialog({
   open,
   userEmail,
   reason,
+  blockedBy,
   onClose,
   onConfirm,
   isSaving,
   errorMessage,
 }: RemoveBlacklistDialogProps) {
   const disabled = isSaving;
+  const [blockedByUser, setBlockedByUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      if (!blockedBy || !open) return;
+      
+      try {
+        const response = await api.get(`/admin/users/${blockedBy}`);
+        const userData = response.data?.data || response.data;
+        const userName = userData?.name || userData?.email || userData?.displayName || blockedBy;
+        setBlockedByUser(userName);
+      } catch (error) {
+        console.error(`Failed to fetch user data for ${blockedBy}`, error);
+        setBlockedByUser(blockedBy); // Fallback to UID if fetch fails
+      }
+    };
+
+    fetchUserDetails();
+  }, [blockedBy, open]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : null)}>
@@ -51,10 +74,14 @@ export default function RemoveBlacklistDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="rounded-lg bg-muted p-3">
+          <div className="rounded-lg bg-muted p-3 space-y-2">
             <p className="text-sm text-muted-foreground">
               <span className="font-medium">Reason: </span>
               {reason}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Blocked by: </span>
+              {blockedByUser || "Loading..."}
             </p>
           </div>
 

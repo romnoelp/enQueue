@@ -5,12 +5,27 @@ import { ArrowRight, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/app/lib/config/firebase";
 import BounceLoader from "@/components/mvpblocks/bouncing-loader";
-import signIn from "./lib/authentication/signin";
+import { signInWithGoogle } from "@/app/lib/auth/signInWithGoogle";
 
 export default function GradientHero() {
+  const router = useRouter();
   const [clicked, setClicked] = useState<boolean>(false);
   const [showIntro, setShowIntro] = useState<boolean>(true);
+
+  useEffect(() => {
+    // Redirect to dashboard if already signed in and /auth/me accepts the user
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user == null) {
+        return;
+      }
+      router.replace("/dashboard");
+    });
+    return () => unsubscribe();
+  }, [router]);
 
   useEffect(() => {
     // Show intro for 2 seconds, then transition to main page
@@ -28,9 +43,9 @@ export default function GradientHero() {
           onClick={async () => {
             try {
               setClicked(true);
-              await signIn();
+              await signInWithGoogle();
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
             } catch (error) {
-              console.error(error);
               setClicked(false);
             }
           }}

@@ -1,25 +1,9 @@
 export type CashierType = "payment" | "clinic" | "auditing" | "registrar";
 
-export interface Station {
+export type Station = {
+  id?: string;
   name: string;
   description: string;
   type: CashierType;
 }
 
-export interface Counter {
-  counterNumber: number;
-  stationID: string;
-  uid: string;
-  serving: string | null;
-}
-
-export type StationApiItem = Partial<Station> & {
-  id?: string | number;
-};
-
-export type StationInitialData = Partial<Station> | null;
-
-export type StationListItem = StationApiItem & {
-  role?: string;
-  email?: string;
-};

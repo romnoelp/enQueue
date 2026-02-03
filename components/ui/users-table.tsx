@@ -2,29 +2,20 @@
 
 import { memo, useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { api } from "@/app/lib/config/api";
+import type Employee from "@/types/employee";
+import { isAxiosError } from "axios";
 
 interface UsersTableProps {
   onAddUser?: () => void;
 }
 
-type Employee = {
-  uid: string;
-  email?: string;
-  name?: string;
-  role?: string;
+type EmployeeWithCreatedAt = Employee & {
   createdAt?: number | string;
 };
 
-type AdminUser = {
-  uid: string;
-  email?: string;
-  displayName?: string;
-  name?: string;
-  role?: string;
-  createdAt?: number | string;
-};
 export const UsersTable = memo(({}: UsersTableProps) => {
-  const [users, setUsers] = useState<Employee[]>([]);
+  const [users, setUsers] = useState<EmployeeWithCreatedAt[]>([]);
   const [loading, setLoading] = useState(true);
 
   const formatRole = (role?: string) => {
@@ -44,26 +35,20 @@ export const UsersTable = memo(({}: UsersTableProps) => {
 
     const fetchUsers = async () => {
       try {
-        const res = await fetch("/api/admin/employees");
-        const json = await res.json();
-        const employees: Employee[] = Array.isArray(json.employees)
-          ? (json.employees as AdminUser[]).map((u) => ({
-              uid: u.uid,
-              email: u.email,
-              name: u.name || u.displayName || u.email,
-              role: u.role,
-              createdAt:
-                typeof u.createdAt === "number"
-                  ? u.createdAt
-                  : u.createdAt
-                  ? Number(u.createdAt)
-                  : undefined,
-            }))
-          : [];
+        const response = await api.get("/admin/employees", {
+          params: {
+            limit: 8,
+          },
+        });
 
-        if (mounted) setUsers(employees.slice(0, 8));
+        const employees: EmployeeWithCreatedAt[] = (response.data.employees ?? []) as EmployeeWithCreatedAt[];
+        
+        if (mounted) setUsers(employees);
       } catch (err) {
         console.error("Failed to load employees", err);
+        if (isAxiosError(err)) {
+          console.error("Error details:", err.response?.data);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -135,7 +120,9 @@ export const UsersTable = memo(({}: UsersTableProps) => {
                       <div className="text-muted-foreground text-xs">
                         {user.createdAt
                           ? new Date(
-                              Number(user.createdAt)
+                              typeof user.createdAt === "number"
+                                ? user.createdAt
+                                : user.createdAt
                             ).toLocaleDateString()
                           : "—"}
                       </div>

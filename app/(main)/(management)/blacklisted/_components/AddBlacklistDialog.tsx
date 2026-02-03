@@ -11,15 +11,14 @@ import {
 } from "@/components/animate-ui/components/radix/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
+import { auth } from "@/app/lib/config/firebase";
 
-const EMAIL_DOMAIN = "@neu.edu.ph";
 
 type AddBlacklistDialogProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: (email: string, reason: string) => void;
+  onConfirm: (email: string, reason: string, blockedBy: string) => void;
   isSaving?: boolean;
   errorMessage?: string | null;
 };
@@ -31,21 +30,24 @@ export default function AddBlacklistDialog({
   isSaving,
   errorMessage,
 }: AddBlacklistDialogProps) {
-  const [emailUsername, setEmailUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [reason, setReason] = useState("");
 
   const handleClose = () => {
-    setEmailUsername("");
+    setEmail("");
     setReason("");
     onClose();
   };
 
   const handleConfirm = () => {
-    const fullEmail = emailUsername + EMAIL_DOMAIN;
-    onConfirm(fullEmail, reason);
+    const blockedBy = auth.currentUser?.uid || "";
+    if (!blockedBy) {
+      return;
+    }
+    onConfirm(email, reason, blockedBy);
   };
 
-  const disabled = isSaving || !emailUsername.trim() || !reason.trim();
+  const disabled = isSaving || !email.trim() || !reason.trim();
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? handleClose() : null)}>
@@ -62,33 +64,20 @@ export default function AddBlacklistDialog({
         <DialogHeader>
           <DialogTitle>Blacklist a user</DialogTitle>
           <DialogDescription>
-            Enter the email username and reason for blacklisting this user.
+            Enter the email and reason for blacklisting this user.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium">Email</label>
-            <div className="flex items-center gap-1">
-              <Input
-                type="text"
-                placeholder="username"
-                value={emailUsername}
-                onChange={(e) => setEmailUsername(e.target.value)}
-                disabled={isSaving}
-                className="flex-1"
-              />
-              <Badge
-                variant="secondary"
-                className="shrink-0 px-3 py-1.5 text-sm"
-              >
-                {EMAIL_DOMAIN}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Full email: {emailUsername || "username"}
-              {EMAIL_DOMAIN}
-            </p>
+            <Input
+              type="email"
+              placeholder="email@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={isSaving}
+            />
           </div>
 
           <div className="flex flex-col gap-1.5">

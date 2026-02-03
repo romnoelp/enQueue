@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import type { Station as ImportedStation } from "@/types/station";
-import { apiFetch } from "@/app/lib/backend/api";
+// import { apiFetch } from "@/app/lib/backend/api";
 import { Info } from "lucide-react";
 
 type Station = Partial<ImportedStation> & {
@@ -30,7 +30,7 @@ const FlipCardFront = ({
   useEffect(() => {
     const stationId = station?.id;
     if (!stationId) {
-      setIsStationActive(false);
+      // setIsStationActive(false);
       return;
     }
 
@@ -40,21 +40,21 @@ const FlipCardFront = ({
       try {
         // Backend route is mounted at /counters
         // The backend currently ignores stationId filtering, so we filter client-side.
-        const data = await apiFetch<{ counters?: CounterApiItem[] }>(
-          "/counters",
-          {
-            query: { stationId: String(stationId), limit: 200 },
-          }
-        );
+        // const data = await apiFetch<{ counters?: CounterApiItem[] }>(
+        //   "/counters",
+        //   {
+        //     query: { stationId: String(stationId), limit: 200 },
+        //   }
+        // );
 
-        const counters = Array.isArray(data?.counters) ? data.counters : [];
-        const active = counters.some(
-          (counter) =>
-            String(counter.stationId ?? "") === String(stationId) &&
-            Boolean(counter.cashierUid)
-        );
+        // const counters = Array.isArray(data?.counters) ? data.counters : [];
+        // const active = counters.some(
+        //   (counter) =>
+        //     String(counter.stationId ?? "") === String(stationId) &&
+        //     Boolean(counter.cashierUid)
+        // );
 
-        if (!cancelled) setIsStationActive(active);
+        // if (!cancelled) setIsStationActive(active);
       } catch {
         // Best-effort: if counters cannot be read, default to inactive.
         if (!cancelled) setIsStationActive(false);

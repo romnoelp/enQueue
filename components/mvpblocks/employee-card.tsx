@@ -13,7 +13,7 @@ const EmployeeCard = ({ name, role, email }: Employee) => {
   const Icon = roleIconMap[role] || Info;
 
   return (
-    <div className="w-full max-w-sm h-[200px] p-2">
+    <div className="w-full max-w-md h-50 p-2">
       <div className="scale-in group visible cursor-pointer h-full">
         <div
           className={`

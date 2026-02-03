@@ -3,31 +3,69 @@
 import BounceLoader from "@/components/mvpblocks/bouncing-loader";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as motion from "motion/react-client";
-import { useSession } from "next-auth/react";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import BlacklistedUserCard from "@/components/mvpblocks/blacklisted-user-card";
 import type { Blacklist } from "@/types/blacklist";
 import Actions from "./_components/Actions";
-import { searchBlacklistedUsers } from "./_utils/list";
 import { toast } from "sonner";
 import RemoveBlacklistDialog from "./_components/RemoveBlacklistDialog";
 import AddBlacklistDialog from "./_components/AddBlacklistDialog";
-import { unblockEmail, blockEmail } from "./_utils/mutations";
 import { useDialog } from "@/hooks/use-dialog";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useBlacklistedUsers } from "./_hooks/use-blacklisted-users";
-import { useState } from "react";
+import { api } from "@/app/lib/config/api";
 
 const Blacklisted = () => {
-  const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
+  const [userEmailMap, setUserEmailMap] = useState<Map<string, string>>(new Map());
+  const emails = useRef<Set<string>>(new Set());
 
-  const { blacklisted, isLoading, addUser, removeUser } = useBlacklistedUsers();
+  const { blacklisted, isLoading, blockUser, unblockUser } = useBlacklistedUsers();
   const removeDialog = useDialog<Blacklist | null>(null);
   const addDialog = useDialog<boolean>(false);
 
+  const loadUserEmail = useCallback(async (userId: string) => {
+    if (emails.current.has(userId)) {
+      return;
+    }
+
+    emails.current.add(userId);
+    try {
+      const res = await api.get(`/admin/users/${userId}`);
+      const email = res.data.user.email ?? null;
+      if (email) {
+        setUserEmailMap((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(userId, email);
+          return newMap;
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to fetch email for user ${userId}`, error);
+    }
+    emails.current.delete(userId);
+  }, []);
+
+  useEffect(() => {
+    const uniqueUserIds = new Set(
+      blacklisted.map((user) => user.blockedBy).filter(Boolean)
+    );
+    uniqueUserIds.forEach((userId) => {
+      if (userId && !userEmailMap.has(userId) && !emails.current.has(userId)) {
+        loadUserEmail(userId);
+      }
+    });
+  }, [blacklisted, userEmailMap, loadUserEmail]);
+
   const filtered = useMemo(() => {
-    return searchBlacklistedUsers(blacklisted, searchQuery);
+    if (!searchQuery.trim()) {
+      return blacklisted;
+    }
+    const query = searchQuery.toLowerCase();
+    return blacklisted.filter((user) =>
+      user.email.toLowerCase().includes(query) ||
+      user.reason.toLowerCase().includes(query)
+    );
   }, [blacklisted, searchQuery]);
 
   const confirmRemove = async () => {
@@ -41,8 +79,8 @@ const Blacklisted = () => {
     try {
       removeDialog.setIsSaving(true);
       removeDialog.resetError();
-      await unblockEmail(selectedUser.email);
-      removeUser(selectedUser);
+      await api.delete(`/admin/blacklist/${selectedUser.email}`, )
+      unblockUser(selectedUser);
       toast.success(`${selectedUser.email} removed from blacklist.`);
       removeDialog.close();
     } catch (error) {
@@ -54,14 +92,19 @@ const Blacklisted = () => {
     }
   };
 
-  const confirmAdd = async (email: string, reason: string) => {
+  // blockedBy is an employee user uid
+  const confirmAdd = async (email: string, reason: string, blockedBy: string) => {
     try {
       addDialog.setIsSaving(true);
       addDialog.resetError();
-      await blockEmail(email, reason);
+      await api.post("/admin/blacklist", {
+        email,
+        reason,
+        blockedBy
+      });
 
-      const newUser: Blacklist = { email, reason };
-      addUser(newUser);
+      const blacklistedUser: Blacklist = { email, reason, blockedBy };
+      blockUser(blacklistedUser);
 
       toast.success(`${email} has been blacklisted.`);
       addDialog.close();
@@ -73,14 +116,6 @@ const Blacklisted = () => {
       addDialog.setIsSaving(false);
     }
   };
-
-  if (!session) {
-    return (
-      <div className="h-full flex justify-center items-center">
-        <BounceLoader />
-      </div>
-    );
-  }
 
   return (
     <div className="h-full flex flex-col">
@@ -119,7 +154,7 @@ const Blacklisted = () => {
           )}
 
           {filtered.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
               {filtered.map((user, index) => (
                 <motion.div
                   className="text-left"
@@ -135,6 +170,8 @@ const Blacklisted = () => {
                   <BlacklistedUserCard
                     email={user.email}
                     reason={user.reason}
+                    blockedBy={user.blockedBy}
+                    blockedByEmail={userEmailMap.get(user.blockedBy)}
                     onRemove={() => removeDialog.open(user)}
                   />
                 </motion.div>
@@ -148,6 +185,7 @@ const Blacklisted = () => {
         open={!!removeDialog.data}
         userEmail={removeDialog.data?.email ?? ""}
         reason={removeDialog.data?.reason ?? ""}
+        blockedBy={removeDialog.data?.blockedBy ?? ""}
         onClose={removeDialog.close}
         onConfirm={confirmRemove}
         isSaving={removeDialog.isSaving}

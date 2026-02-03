@@ -51,7 +51,7 @@ const ChangeRoleDialog = ({
       onOpenChange={(nextOpen) => (!nextOpen ? onClose() : null)}
     >
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-xl"
         from="bottom"
         transition={{
           type: "spring",
@@ -62,9 +62,17 @@ const ChangeRoleDialog = ({
       >
         <DialogHeader>
           <DialogTitle>Change employee role</DialogTitle>
-          <DialogDescription>
-            <Badge variant="secondary">Current: {fromRoleLabel}</Badge>
-          </DialogDescription>
+          {employee && (
+            <>
+              <div className="space-y-1">
+                <div className="font-medium">{employee.name}</div>
+                <div className="text-sm text-muted-foreground">{employee.email}</div>
+              </div>
+              <DialogDescription>
+                <Badge variant="secondary">Current: {fromRoleLabel}</Badge>
+              </DialogDescription>
+            </>
+          )}
         </DialogHeader>
 
         <div className="space-y-3">

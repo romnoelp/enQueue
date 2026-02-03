@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { apiFetch } from "@/app/lib/backend/api";
-import { normalizeBlacklistedResponse } from "../_utils/data";
 import type { Blacklist } from "@/types/blacklist";
 import { toast } from "sonner";
+import { api } from "@/app/lib/config/api";
+import { isAxiosError } from "axios";
 
 // Custom hook to fetch and manage blacklisted users
 export const useBlacklistedUsers = () => {
@@ -13,12 +13,15 @@ export const useBlacklistedUsers = () => {
     const fetchBlacklisted = async () => {
       try {
         // Backend Firebase Functions route: GET /admin/blacklist
-        const data = await apiFetch("/admin/blacklist");
-        setBlacklisted(normalizeBlacklistedResponse(data));
+        const response = await api.get("/admin/blacklist");
+        console.log("test", response.data)
+        setBlacklisted(response.data.blacklistedEmails);
       } catch (error) {
-        console.error("Failed to load blacklisted users", error);
-        toast.error("Failed to load blacklisted users");
-        setBlacklisted([]);
+        if (isAxiosError(error)) {
+          toast.error(error.response?.data.message);
+        } else {
+          toast.error("Failed to load blacklisted users");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -26,18 +29,18 @@ export const useBlacklistedUsers = () => {
     fetchBlacklisted();
   }, []);
 
-  const addUser = (newUser: Blacklist) => {
+  const blockUser = (newUser: Blacklist) => {
     setBlacklisted((prevList) => [newUser, ...prevList]);
   };
 
-  const removeUser = (targetUser: Blacklist) => {
+  const unblockUser = (targetUser: Blacklist) => {
     setBlacklisted((prevList) => prevList.filter((user) => user.email !== targetUser.email));
   };
 
   return {
     blacklisted,
     isLoading,
-    addUser,
-    removeUser,
+    blockUser,
+    unblockUser
   };
 };

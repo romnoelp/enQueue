@@ -22,12 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Magnetic } from "@/components/motion-primitives/magnetic";
-import { apiFetch } from "@/app/lib/backend/api";
 import { toast } from "sonner";
-
-type Props = {
-  onCreated?: () => void;
-};
+import { api } from "@/app/lib/config/api";
+import { useStationsRefresh } from "../_contexts/StationsRefreshContext";
+import { isAxiosError } from "axios";
 
 const STATION_TYPES = [
   { value: "auditing", label: "Auditing" },
@@ -36,7 +34,8 @@ const STATION_TYPES = [
   { value: "registrar", label: "Registrar" },
 ] as const;
 
-export default function AddStationDialog({ onCreated }: Props) {
+export default function AddStationDialog() {
+  const { refresh } = useStationsRefresh();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -67,19 +66,19 @@ export default function AddStationDialog({ onCreated }: Props) {
         type: typeValue,
       };
 
-      await apiFetch("/stations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      await api.post("/stations", payload)
 
       toast.success("Station created successfully");
       setOpen(false);
       resetForm();
-      onCreated?.();
+      await refresh();
     } catch (err) {
       console.error("Failed to create station:", err);
-      toast.error((err as Error).message || "Failed to create station");
+      if (isAxiosError(err) && err.response?.data?.message) {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error("Failed to create station");
+      }
     } finally {
       setIsCreating(false);
     }

@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { UserRole } from "@/types/auth";
-import { SELECTABLE_ROLES, getRoleLabel } from "../_utils/role";
+import { getRoleLabel, SELECTABLE_ROLES } from "@/app/(main)/(people)/employees/_utils/role";
 
 type AssignRoleDialogProps = {
   open: boolean;
@@ -72,7 +72,7 @@ export default function AssignRoleDialog({
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent align="start">
-                {SELECTABLE_ROLES.map((role) => (
+                {SELECTABLE_ROLES.filter((role) => role !== "pending").map((role) => (
                   <SelectItem key={role} value={role}>
                     {getRoleLabel(role)}
                   </SelectItem>

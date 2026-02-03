@@ -1,98 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type {
-  Station as ImportedStation,
-  StationApiItem,
-  StationInitialData,
-  StationListItem,
-} from "@/types/station";
+import { useState } from "react";
+import type { Station } from "@/types/station";
 import {
   MorphingDialog,
   MorphingDialogContent,
   MorphingDialogClose,
   MorphingDialogContainer,
 } from "@/components/motion-primitives/morphing-dialog";
-import { apiFetch } from "@/app/lib/backend/api";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DetailContent from "./DetailContent";
 import FlipCard from "./FlipCard";
 import CounterContent from "./CounterContent";
+import { api } from "@/app/lib/config/api";
 
-export const StationMorphingDialogTest = ({
+export const StationMorphingDialog = ({
   station,
-  onRefresh,
 }: {
-  station?: StationListItem;
-  onRefresh?: () => void | Promise<void>;
+  station: Station;
 }) => {
-  const title = station?.name ?? "New Station";
-  const [initialData, setInitialData] = useState<StationInitialData>(null);
-  const [currentStation, setCurrentStation] = useState<
-    StationListItem | undefined
-  >(station);
-  const [loadingInitialData, setLoadingInitialData] = useState<boolean>(true);
+  const [initialData, setInitialData] = useState<Station | null>(station);
+  const [currentStation, setCurrentStation] = useState<Station>(
+    station
+  );
   const [activeTab, setActiveTab] = useState<string>("details");
-
-  useEffect(() => {
-    const abort = { aborted: false };
-    setCurrentStation(station);
-
-    if (station) {
-      setInitialData({
-        name: station.name ?? "",
-        description: station.description ?? "",
-        type: station.type as unknown as ImportedStation["type"],
-      });
-    } else {
-      setInitialData(null);
-    }
-
-    (async () => {
-      if (!abort.aborted) setLoadingInitialData(true);
-      try {
-        const data = await apiFetch<{
-          stations?: StationApiItem[];
-          cashierLocationList?: StationApiItem[];
-        }>("/stations");
-        if (abort.aborted) return;
-
-        const list = Array.isArray(data?.cashierLocationList)
-          ? data.cashierLocationList
-          : Array.isArray(data?.stations)
-          ? data.stations
-          : [];
-
-        const found = (list as StationApiItem[]).find(
-          (stationItem) => String(stationItem.id) === String(station?.id)
-        );
-
-        if (found) {
-          setInitialData({
-            name: found.name,
-            description: found.description,
-            type: found.type as unknown as ImportedStation["type"],
-          });
-          // Update local station display with freshest data
-          setCurrentStation(
-            (prev) => ({ ...(prev ?? {}), ...found } as StationListItem)
-          );
-        } else {
-          if (!station) setInitialData(null);
-        }
-      } catch (err) {
-        console.error("Failed to fetch stations", err);
-        if (!station) setInitialData(null);
-      } finally {
-        if (!abort.aborted) setLoadingInitialData(false);
-      }
-    })();
-
-    return () => {
-      abort.aborted = true;
-    };
-  }, [station]);
 
   return (
     <MorphingDialog
@@ -104,8 +36,7 @@ export const StationMorphingDialogTest = ({
     >
       <FlipCard
         station={currentStation}
-        title={currentStation?.name ?? title}
-        onDeleted={onRefresh}
+        title={currentStation?.name}
       />
 
       <MorphingDialogContainer>
@@ -131,47 +62,27 @@ export const StationMorphingDialogTest = ({
             <TabsContent className="w-full" value="details">
               <DetailContent
                 initialData={initialData}
-                loading={loadingInitialData}
-                onSave={async (payload: StationInitialData) => {
-                  try {
-                    if (!station?.id) throw new Error("Station ID is missing");
+                onSave={async (payload: Partial<Station>) => {
+                  if (!station?.id) throw new Error("Station ID is missing");
 
-                    const body = { ...(payload ?? {}) };
-                    await apiFetch(
-                      `/stations/stations/${encodeURIComponent(
-                        String(station.id)
-                      )}`,
-                      {
-                        method: "PUT",
-                        body: JSON.stringify(body),
-                        headers: { "Content-Type": "application/json" },
-                      }
-                    );
+                  await api.put(`/stations/${station.id}`, payload);
 
-                    // Update the dialog's initial data and the local station
-                    setInitialData((prev) => ({ ...(prev ?? {}), ...payload }));
-                    setCurrentStation(
-                      (prev) =>
-                        ({ ...(prev ?? {}), ...payload } as StationListItem)
-                    );
+                  // Update both states with the same payload
+                  const updatedStation = { ...currentStation, ...payload } as Station;
+                  setInitialData(updatedStation);
+                  setCurrentStation(updatedStation);
 
-                    try {
-                      const closeBtn = document.querySelector(
-                        'button[aria-label="Close dialog"]'
-                      ) as HTMLButtonElement | null;
-                      if (closeBtn) closeBtn.click();
-                    } catch {}
-                  } catch (err) {
-                    console.error("Failed to save station", err);
-                    throw err;
-                  }
+                  // Close dialog after successful save
+                  const closeBtn = document.querySelector(
+                    'button[aria-label="Close dialog"]'
+                  ) as HTMLButtonElement | null;
+                  closeBtn?.click();
                 }}
               />
             </TabsContent>
             <TabsContent value="counters" className="w-full">
               <CounterContent
-                stationId={currentStation?.id}
-                onCreated={onRefresh}
+                stationId={currentStation.id!}
               />
             </TabsContent>
           </Tabs>

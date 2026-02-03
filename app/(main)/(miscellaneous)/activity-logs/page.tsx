@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import BounceLoader from "@/components/mvpblocks/bouncing-loader";
-import { fetchLogs } from "./_utils/data";
+import { fetchLogs, fetchUserEmail } from "./_utils/data";
 import LogsTable from "./_components/LogsTable";
 import LogRow from "./_components/LogRow";
 import EmptyState from "./_components/EmptyState";
@@ -21,6 +21,8 @@ const ActivityLogs = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userEmailMap, setUserEmailMap] = useState<Map<string, string>>(new Map());
+  const fetchingEmails = useRef<Set<string>>(new Set());
 
   const loadLogs = useCallback(async () => {
     if (!startDate || !endDate) return;
@@ -43,16 +45,43 @@ const ActivityLogs = () => {
     loadLogs();
   }, [loadLogs]);
 
+  const loadUserEmail = useCallback(async (userId: string) => {
+    if (fetchingEmails.current.has(userId)) {
+      return;
+    }
+
+    fetchingEmails.current.add(userId);
+    const email = await fetchUserEmail(userId);
+    if (email) {
+      setUserEmailMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(userId, email);
+        return newMap;
+      });
+    }
+    fetchingEmails.current.delete(userId);
+  }, []);
+
+  useEffect(() => {
+    const uniqueUserIds = new Set(logs.map((log) => log.uid));
+    uniqueUserIds.forEach((userId) => {
+      if (!userEmailMap.has(userId) && !fetchingEmails.current.has(userId)) {
+        loadUserEmail(userId);
+      }
+    });
+  }, [logs, userEmailMap, loadUserEmail]);
+
   const filteredLogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return logs;
     return logs.filter((log) => {
       const details = (log.details ?? "").toLowerCase();
-      const uid = String(log.uid ?? "").toLowerCase();
+      const email = userEmailMap.get(log.uid) ?? log.uid;
+      const emailLower = email.toLowerCase();
       const action = String(log.action ?? "").toLowerCase();
-      return details.includes(q) || uid.includes(q) || action.includes(q);
+      return details.includes(q) || emailLower.includes(q) || action.includes(q);
     });
-  }, [logs, searchQuery]);
+  }, [logs, searchQuery, userEmailMap]);
 
   if (loading) {
     return (
@@ -112,6 +141,7 @@ const ActivityLogs = () => {
               <LogRow
                 key={`${log.timestamp}-${log.uid}-${String(log.action)}`}
                 log={log}
+                email={userEmailMap.get(log.uid)}
               />
             ))}
           </LogsTable>

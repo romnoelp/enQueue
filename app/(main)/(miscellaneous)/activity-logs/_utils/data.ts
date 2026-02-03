@@ -1,4 +1,5 @@
-import { apiFetch } from "@/app/lib/backend/api";
+
+import { api } from "@/app/lib/config/api";
 import type { ActivityLog } from "@/types/activity";
 
 export const fetchLogs = async (
@@ -11,18 +12,27 @@ export const fetchLogs = async (
   end.setHours(23, 59, 59, 999);
 
   try {
-    const res = await apiFetch<{ data?: ActivityLog[] }>(
+    const res = await api.get(
       "/admin/activity-logs",
       {
-        query: {
+        params: {
           startDate: start.toISOString(),
           endDate: end.toISOString(),
         },
       }
     );
 
-    return res.data ?? [];
+    return res.data.activityLogs?? [];
   } catch {
     return [];
+  }
+};
+
+export const fetchUserEmail = async (userId: string): Promise<string | null> => {
+  try {
+    const res = await api.get(`/admin/users/${userId}`);
+    return res.data.user.email ?? null;
+  } catch {
+    return null;
   }
 };

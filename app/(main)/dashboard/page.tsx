@@ -1,21 +1,10 @@
 "use client";
 
-import * as motion from "motion/react-client";
 import { DashboardCard } from "@/components/ui/dashboard-card";
 import { RecentActivity } from "@/components/ui/recent-activity";
 import { UsersTable } from "@/components/ui/users-table";
-import React, { useEffect, useState } from "react";
+import { useState } from "react";
 import { Users, Activity, Eye, MapPin } from "lucide-react";
-import { useSession } from "next-auth/react";
-import { apiFetch } from "@/app/lib/backend/api";
-import { parseStationsResponse } from "@/lib/backend/parse-stations";
-
-type StationListItem = { id?: string | number };
-
-type CounterApiItem = {
-  stationId?: string | number;
-  cashierUid?: string | null;
-};
 
 const Dashboard = () => {
   const [stats, setStats] = useState([
@@ -57,137 +46,136 @@ const Dashboard = () => {
     },
   ]);
 
-  useEffect(() => {
-    let mounted = true;
+  // useEffect(() => {
+  //   let mounted = true;
 
-    const fetchDashboard = async () => {
-      try {
-        const end = new Date().toISOString();
-        const start = new Date(
-          Date.now() - 7 * 24 * 60 * 60 * 1000
-        ).toISOString();
+  //   const fetchDashboard = async () => {
+  //     try {
+  //       const end = new Date().toISOString();
+  //       const start = new Date(
+  //         Date.now() - 7 * 24 * 60 * 60 * 1000
+  //       ).toISOString();
 
-        const [employeesJson, activitiesJson, stationsRaw] = await Promise.all([
-          apiFetch<{ employees?: unknown[] }>("/admin/employees").catch(() => ({
-            employees: [],
-          })),
-          apiFetch<{ data?: unknown[] }>("/admin/activity-logs", {
-            query: { startDate: start, endDate: end },
-          }).catch(() => ({
-            data: [],
-          })),
-          apiFetch<unknown>("/stations").catch(() => null),
-        ]);
+  //       const [employeesJson, activitiesJson, stationsRaw] = await Promise.all([
+  //         apiFetch<{ employees?: unknown[] }>("/admin/employees").catch(() => ({
+  //           employees: [],
+  //         })),
+  //         apiFetch<{ data?: unknown[] }>("/admin/activity-logs", {
+  //           query: { startDate: start, endDate: end },
+  //         }).catch(() => ({
+  //           data: [],
+  //         })),
+  //         apiFetch<unknown>("/stations").catch(() => null),
+  //       ]);
 
-        const totalEmployees = Array.isArray(employeesJson.employees)
-          ? employeesJson.employees.length
-          : 0;
+  //       const totalEmployees = Array.isArray(employeesJson.employees)
+  //         ? employeesJson.employees.length
+  //         : 0;
 
-        const stationsList: StationListItem[] = parseStationsResponse(
-          stationsRaw
-        ).map((station) => ({
-          id: (station as Record<string, unknown>).id as
-            | string
-            | number
-            | undefined,
-        }));
-        const stationsCount = stationsList.length;
+  //       const stationsList: StationListItem[] = parseStationsResponse(
+  //         stationsRaw
+  //       ).map((station) => ({
+  //         id: (station as Record<string, unknown>).id as
+  //           | string
+  //           | number
+  //           | undefined,
+  //       }));
+  //       const stationsCount = stationsList.length;
 
-        const activityCount = Array.isArray(activitiesJson.data)
-          ? activitiesJson.data.length
-          : 0;
+  //       const activityCount = Array.isArray(activitiesJson.data)
+  //         ? activitiesJson.data.length
+  //         : 0;
 
-        // Count active counters across all stations (active = has cashierUid)
-        let activeCounters = 0;
-        if (stationsList.length > 0) {
-          const counterPromises = stationsList.map((station: StationListItem) =>
-            apiFetch<{ counters?: CounterApiItem[] }>("/counters", {
-              query: { stationId: station.id ?? "", limit: 200 },
-            }).catch(() => ({ counters: [] }))
-          );
+  //       // Count active counters across all stations (active = has cashierUid)
+  //       let activeCounters = 0;
+  //       if (stationsList.length > 0) {
+  //         const counterPromises = stationsList.map((station: StationListItem) =>
+  //           apiFetch<{ counters?: CounterApiItem[] }>("/counters", {
+  //             query: { stationId: station.id ?? "", limit: 200 },
+  //           }).catch(() => ({ counters: [] }))
+  //         );
 
-          const counterResults = await Promise.all(counterPromises);
+  //         const counterResults = await Promise.all(counterPromises);
 
-          for (let i = 0; i < counterResults.length; i++) {
-            const station = stationsList[i];
-            const res = counterResults[i];
-            const list = Array.isArray(res.counters) ? res.counters : [];
+  //         for (let i = 0; i < counterResults.length; i++) {
+  //           const station = stationsList[i];
+  //           const res = counterResults[i];
+  //           const list = Array.isArray(res.counters) ? res.counters : [];
 
-            // Backend currently does not reliably filter by stationId; filter client-side.
-            const stationCounters = list.filter(
-              (c: CounterApiItem) =>
-                String(c.stationId ?? "") === String(station?.id ?? "")
-            );
+  //           // Backend currently does not reliably filter by stationId; filter client-side.
+  //           const stationCounters = list.filter(
+  //             (c: CounterApiItem) =>
+  //               String(c.stationId ?? "") === String(station?.id ?? "")
+  //           );
 
-            activeCounters += stationCounters.filter((c: CounterApiItem) =>
-              Boolean(c.cashierUid)
-            ).length;
-          }
-        }
+  //           activeCounters += stationCounters.filter((c: CounterApiItem) =>
+  //             Boolean(c.cashierUid)
+  //           ).length;
+  //         }
+  //       }
 
-        if (!mounted) return;
+  //       if (!mounted) return;
 
-        setStats([
-          {
-            title: "Employees",
-            value: totalEmployees.toLocaleString(),
-            change: "",
-            changeType: "positive" as const,
-            icon: Users,
-            color: "text-blue-500",
-            bgColor: "bg-blue-500/10",
-          },
-          {
-            title: "Stations",
-            value: stationsCount.toLocaleString(),
-            change: "",
-            changeType: "positive" as const,
-            icon: MapPin,
-            color: "text-green-500",
-            bgColor: "bg-green-500/10",
-          },
-          {
-            title: "Active Counters",
-            value: activeCounters.toLocaleString(),
-            change: "",
-            changeType: "positive" as const,
-            icon: Activity,
-            color: "text-purple-500",
-            bgColor: "bg-purple-500/10",
-          },
-          {
-            title: "Recent Activities (7d)",
-            value: activityCount.toLocaleString(),
-            change: "",
-            changeType: "negative" as const,
-            icon: Eye,
-            color: "text-orange-500",
-            bgColor: "bg-orange-500/10",
-          },
-        ]);
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
-      }
-    };
+  //       setStats([
+  //         {
+  //           title: "Employees",
+  //           value: totalEmployees.toLocaleString(),
+  //           change: "",
+  //           changeType: "positive" as const,
+  //           icon: Users,
+  //           color: "text-blue-500",
+  //           bgColor: "bg-blue-500/10",
+  //         },
+  //         {
+  //           title: "Stations",
+  //           value: stationsCount.toLocaleString(),
+  //           change: "",
+  //           changeType: "positive" as const,
+  //           icon: MapPin,
+  //           color: "text-green-500",
+  //           bgColor: "bg-green-500/10",
+  //         },
+  //         {
+  //           title: "Active Counters",
+  //           value: activeCounters.toLocaleString(),
+  //           change: "",
+  //           changeType: "positive" as const,
+  //           icon: Activity,
+  //           color: "text-purple-500",
+  //           bgColor: "bg-purple-500/10",
+  //         },
+  //         {
+  //           title: "Recent Activities (7d)",
+  //           value: activityCount.toLocaleString(),
+  //           change: "",
+  //           changeType: "negative" as const,
+  //           icon: Eye,
+  //           color: "text-orange-500",
+  //           bgColor: "bg-orange-500/10",
+  //         },
+  //       ]);
+  //     } catch (err) {
+  //       console.error("Error fetching dashboard data:", err);
+  //     }
+  //   };
 
-    void fetchDashboard();
+  //   void fetchDashboard();
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  //   return () => {
+  //     mounted = false;
+  //   };
+  // }, []);
 
   const handleAddUser = () => {
     console.log("Adding new user...");
   };
 
-  const { data: session } = useSession();
   return (
     <div className="flex flex-col gap-2 p-2 pt-0 sm:gap-4 sm:p-4">
       <div className="min-h-[calc(100vh-4rem)] flex-1 rounded-lg p-3 sm:rounded-xl sm:p-4 md:p-6">
         <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
           <div className="px-2 sm:px-0">
-            {session ? (
+            {/* {session ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -202,7 +190,7 @@ const Dashboard = () => {
               </motion.div>
             ) : (
               <></>
-            )}
+            )} */}
             <p className="text-muted-foreground text-sm sm:text-base">
               Here&apos;s what&apos;s happening with the school&apos;s counters.
             </p>
